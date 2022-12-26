@@ -1,2 +1,2 @@
 setup:
-  pip install poetry
+	pip install poetry
