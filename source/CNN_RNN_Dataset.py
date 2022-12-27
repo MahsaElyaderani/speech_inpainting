@@ -26,8 +26,11 @@ class Dataset():
 
         self.CURRENT_PATH = '/Users/kadkhodm/Desktop/Research/inpainting/'
         self.run_name = datetime.datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
-        self.df = {"train": pd.read_csv("train_data.csv"),
-                   "test": pd.read_csv("test_data.csv")}
+        if os.path.isfile("train_data.csv"):
+            self.df = {"train": pd.read_csv("train_data.csv"),
+                       "test": pd.read_csv("test_data.csv")}
+        else:
+            self.data_frame()
         self.lipnet_model_path = lipnet_model_path
         self.multimodal_flag = multimodal_flag
         self.lipnet_flag = lipnet_flag

@@ -85,8 +85,6 @@ class Seq2seq():
         self.MODEL_LOGS_PATH = os.path.join(self.CURRENT_PATH, 'logs')
         self.SPEC_RESULTS_PATH = os.path.join(self.CURRENT_PATH, 'spec_results')
         self.run_name = datetime.datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
-        self.df = {"train": pd.read_csv("train_data.csv"),
-                   "test": pd.read_csv("test_data.csv")}
         self.multimodal_flag = multimodal_flag
         self.attention_flag = attention_flag
         self.seq2seq_flag = seq2seq_flag
@@ -107,6 +105,8 @@ class Seq2seq():
         self.dataset = Dataset(self.lipnet_model_path, self.multimodal_flag, self.lipnet_flag)
         self.data = self.dataset.data
         self.decoder_max = 167.2503
+        self.df = {"train": pd.read_csv("train_data.csv"),
+                   "test": pd.read_csv("test_data.csv")}
         # Building the train dataset during the class initialization
         # self.data = {}
 
@@ -308,7 +308,7 @@ class Seq2seq():
 
         opt = Adam(learning_rate=LEARNING_RATE)
         self.model.compile(optimizer=opt,
-                           loss=self.custom_loss,)
+                           loss=mse)# self.custom_loss,)
                            # metrics=[self.masked_relative_err])#[self.masked_acc, self.masked_loss])
         # self.model.compile(optimizer=opt, loss=mse)
         if self.multimodal_flag:

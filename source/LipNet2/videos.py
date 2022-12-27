@@ -5,7 +5,7 @@ from imageio import imread
 from skimage.transform import rescale, resize
 import skvideo.io
 import dlib
-from LipNet.lipnet.lipreading.aligns import Align
+from LipNet2.align import Align
 
 class VideoAugmenter(object):
     @staticmethod
