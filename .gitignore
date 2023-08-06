@@ -2,7 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+#
+source/Speech_VGG.py
+source/transcription2phoneme.py
+source/perceptual_constants.py
+source/LipNet2
 # C extensions
 *.so
 
