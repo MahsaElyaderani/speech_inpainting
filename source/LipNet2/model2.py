@@ -40,6 +40,7 @@ class LipNet(object):
         self.build()
 
     def build(self):
+
         #if K.image_data_format() == 'channels_first':
         #    input_shape = (self.img_c, self.frames_n, self.img_w, self.img_h)
         #else:
@@ -69,25 +70,28 @@ class LipNet(object):
         self.maxp3 = MaxPooling3D(pool_size=(1, 2, 2), strides=(1, 2, 2), name='max3')(self.drop3)
         # print("MaxPooling3D shape", self.maxp3.shape)
         self.resh1 = TimeDistributed(Flatten())(self.maxp3)
-        #print("TimeDistributed shape", self.resh1.shape)
-        self.gru_1 = Bidirectional(GRU(256, return_sequences=True, kernel_initializer='Orthogonal', name='gru1'), merge_mode='concat')(self.resh1)
-        #print("gru1 shape", self.gru_1.shape)
-        self.gru_2 = Bidirectional(GRU(256, return_sequences=True, kernel_initializer='Orthogonal', name='gru2'), merge_mode='concat')(self.gru_1)
+        # print("TimeDistributed shape", self.resh1.shape)
+        self.gru_1 = Bidirectional(GRU(256, return_sequences=True, kernel_initializer='Orthogonal', name='gru1'),
+                                   merge_mode='concat')(self.resh1)
+        # print("gru1 shape", self.gru_1.shape)
+        self.gru_2 = Bidirectional(GRU(256, return_sequences=True, kernel_initializer='Orthogonal', name='gru2'),
+                                   merge_mode='concat')(self.gru_1)
         # transforms RNN output to character activations:
         self.dense1 = Dense(self.output_size, kernel_initializer='he_normal', name='dense1')(self.gru_2)
 
         self.y_pred = Activation('softmax', name='softmax')(self.dense1)
-        #print("ypred shape", self.y_pred.shape )
+        # print("ypred shape", self.y_pred.shape )
         self.labels = Input(name='the_labels', shape=[self.absolute_max_string_len], dtype='float32')
         self.input_length = Input(name='input_length', shape=[1], dtype='int64')
         self.label_length = Input(name='label_length', shape=[1], dtype='int64')
-        #print("labels shape", self.labels.shape)
+        # print("labels shape", self.labels.shape)
         self.loss_out = CTC('ctc', [self.y_pred, self.labels, self.input_length, self.label_length])
 
         self.model = Model(inputs=[self.input_data, self.labels, self.input_length, self.label_length],
                            outputs=self.loss_out)
 
         self.partial_model = Model(inputs=self.input_data, outputs=self.model.layers[23].output)
+
 
     def summary(self):
         Model(inputs=self.input_data, outputs=self.y_pred).summary()
