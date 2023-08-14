@@ -1,11 +1,6 @@
-import pandas as pd
 import csv
 import datetime
-import os
-import pickle
 import shutil
-
-import cv2
 import pandas as pd
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -13,17 +8,7 @@ from editdistance import eval as edit_eval
 from jiwer import wer
 from pesq import pesq
 from pystoi import stoi
-from scipy.signal.windows import hann as hanning
 from skimage.metrics import structural_similarity as ssim
-from skimage.transform import resize
-from imageio import imread
-from tensorflow.keras import Model
-from tensorflow.keras.applications import InceptionV3, inception_v3
-from tensorflow.keras.layers import Input, MaxPool1D
-from tensorflow.keras.models import load_model
-
-# from LipNet2.predict import predict
-from LipNet2.model2 import LipNet
 from PSNR import PSNR
 from tools_audio import *
 from tools_video import extract_face_landmarks, get_motion_vector, sync_audio_visual_features
@@ -36,12 +21,11 @@ FRAME_WIDTH = 100
 FRAME_CHANNEL = 3
 
 
-class Dataset():
+class Dataset:
 
-    def __init__(self, lipnet_model_path, multimodal_flag,
-                 lipnet_flag, landmark_flag, multi_tasking_flag):
+    def __init__(self, multimodal_flag, landmark_flag, multi_tasking_flag):
 
-        self.CURRENT_PATH = '/Users/kadkhodm/Desktop/Research/inpainting/'
+        self.CURRENT_PATH = '../'
         self.run_name = datetime.datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
         if not os.path.isfile("train_data.csv"):
             self.data_frame('train')
@@ -56,62 +40,24 @@ class Dataset():
                    "test_xl": pd.read_csv("test_data.csv"),
                    "test_env": pd.read_csv("test_data.csv"),
                    "test_noise": pd.read_csv("test_data.csv")}
-        self.lipnet_model_path = lipnet_model_path
         self.multimodal_flag = multimodal_flag
-        self.lipnet_flag = lipnet_flag
         self.landmark_flag = landmark_flag
         self.multi_tasking_flag = multi_tasking_flag
         self.BATCH_SIZE = 32
-        self.sample_rate = 8000  # 16000
+        self.sample_rate = 8000
         self.absolute_max_string_len = 41
-        self.encoder_min = -41.778523
-        self.encoder_max = 51.342281
         self.data = {}
         self.dataset = {}
-        # self.load_data('train', augmented=True)
-        # self.load_data('val', augmented=False)
-        # self.load_data('test', augmented=False)
-        # self.load_data('test_s', augmented=False)
-        # self.load_data('test_l', augmented=False)
-        # self.load_data('test_xl', augmented=False)
-        # self.load_data('test_env', augmented=False)
-        # self.load_data('test_noise', augmented=False)
 
     def build_data(self, split):
-        if split == 'test_s':
-            env_sound_flag = False
-            mean_gaps = 300
-            std_gaps = 300
-        elif split == 'test_l':
-            env_sound_flag = False
-            mean_gaps = 800
-            std_gaps = 300
-        elif split == 'test_xl':
-            env_sound_flag = False
-            mean_gaps = 1300
-            std_gaps = 300
-        elif split == 'test_env':
-            env_sound_flag = True
-            mean_gaps = 900
-            std_gaps = 300
-        elif split == 'test_noise':
-            env_sound_flag = True
-            mean_gaps = 900
-            std_gaps = 300
-        else:
-            env_sound_flag = False
-            mean_gaps = 900
-            std_gaps = 300
+        mean_gaps = 900
+        std_gaps = 300
 
         results = self.multimodal_feature_extraction(df=self.df[split],
                                                      split=split,
-                                                     model_path=self.lipnet_model_path,
                                                      multimodal_flag=self.multimodal_flag,
                                                      landmark_flag=self.landmark_flag,
                                                      multi_tasking_flag=self.multi_tasking_flag,
-                                                     lipnet_flag=self.lipnet_flag,
-                                                     incepv3_flag=False,
-                                                     env_sound_flag=env_sound_flag,
                                                      mean_gaps=mean_gaps,
                                                      std_gaps=std_gaps)
 
@@ -122,15 +68,12 @@ class Dataset():
                             'datasets',
                             f'cache_{split}').rstrip('/') + '.cache'
 
-    def load_data(self, split, augmented):
+    def load_data(self, split):
         print("cache path", self.get_cache_path(split))
         if os.path.isfile(self.get_cache_path(split)):
             print(f"\nLoading {split} dataset from cache...")
             with open(self.get_cache_path(split), 'rb') as fp:
                 self.data[split] = pickle.load(fp)
-
-            # self.data[split]["encoder_input"] = ((np.array(self.data[split]["encoder_input"]) - self.encoder_min) /
-            #                                      (self.encoder_max - self.encoder_min)).astype('float32')
             encoder_input = np.array(self.data[split]["encoder_input"]).astype('float32')
             decoder_input = np.array(self.data[split]["decoder_input"]).astype('float32')
             decoder_target = np.array(self.data[split]["decoder_target"]).astype('float32')
@@ -146,61 +89,17 @@ class Dataset():
             elif not self.multimodal_flag and not self.multi_tasking_flag:
                 original_dataset = tf.data.Dataset.from_tensor_slices((decoder_input, decoder_target))
 
-            if augmented:
-
-                aug1_dataset = (original_dataset.cache()
-                                                .shuffle(self.BATCH_SIZE, reshuffle_each_iteration=True)
-                                                .map(self.augment_noise, num_parallel_calls=tf.data.AUTOTUNE)
-                                                .prefetch(tf.data.AUTOTUNE))
-                aug2_dataset = (original_dataset.cache()
-                                                .shuffle(self.BATCH_SIZE, reshuffle_each_iteration=True)
-                                                .map(self.augment_env, num_parallel_calls=tf.data.AUTOTUNE)
-                                                .prefetch(tf.data.AUTOTUNE))
-                org_dataset = (original_dataset.cache()
-                                               .shuffle(self.BATCH_SIZE, reshuffle_each_iteration=True)
-                                               .prefetch(tf.data.AUTOTUNE))
-                dataset = org_dataset.concatenate(aug1_dataset)
-                dataset = dataset.concatenate(aug2_dataset)
-                self.dataset[split] = (dataset.cache()
-                                              .shuffle(self.BATCH_SIZE * 100, reshuffle_each_iteration=True)
-                                              .batch(self.BATCH_SIZE, drop_remainder=True)
-                                              .prefetch(tf.data.AUTOTUNE))
-
-            else:
-                self.dataset[split] = (original_dataset.cache()
-                                                       .batch(self.BATCH_SIZE, drop_remainder=True)
-                                                       .prefetch(tf.data.AUTOTUNE))
+            self.dataset[split] = (original_dataset.cache()
+                                                   .batch(self.BATCH_SIZE, drop_remainder=True)
+                                                   .prefetch(tf.data.AUTOTUNE))
         else:
             print(f"\nEnumerating {split} dataset from disk...")
-            # print("train path", self.train_path )
             self.data[split] = self.build_data(split)
-            # print("train list", self.train_list)
             with open(self.get_cache_path(split), 'wb') as fp:
                 pickle.dump((self.data[split]), fp)
 
-    def augment_env(self, x, y):
-        aug_mel_sgram = load_environmental_sound()
-        if len(x) == 2:
-            aug_decoder_input = x[1] + 1 * np.transpose(aug_mel_sgram)
-            x_p = (x[0], aug_decoder_input)
-        else:
-            aug_decoder_input = x[0] + 1 * np.transpose(aug_mel_sgram)
-            x_p = aug_decoder_input
-        return x_p, y
-
-    def augment_noise(self, x, y):
-        if len(x) == 2:
-            aug_decoder_input = x[1] + 0.1 * np.random.normal(0, 1, (MAX_DEC_SEQ_LEN, NUM_DEC_FEAT))
-            x_p = (x[0], aug_decoder_input)
-        else:
-            aug_decoder_input = x[0] + 0.1 * np.random.normal(0, 1, (MAX_DEC_SEQ_LEN, NUM_DEC_FEAT))
-            x_p = aug_decoder_input
-        return x_p, y
-
-    def multimodal_feature_extraction(self, df, split, model_path, multi_tasking_flag,
-                                      multimodal_flag, lipnet_flag,
-                                      landmark_flag, incepv3_flag,
-                                      env_sound_flag=False, mean_gaps=900, std_gaps=300):
+    def multimodal_feature_extraction(self, df, split, multi_tasking_flag,
+                                      multimodal_flag, landmark_flag, mean_gaps=900, std_gaps=300):
 
         video_paths = df["video_path"].values.tolist()
         frame_features = []
@@ -211,42 +110,18 @@ class Dataset():
         aligns = []
         flag_face_detect = 1
 
-        if lipnet_flag:
-            frames_n, img_w, img_h, img_c = 75, 100, 50, 3
-            lipnet = LipNet(img_c=img_c, img_w=img_w, img_h=img_h, frames_n=frames_n,
-                            absolute_max_string_len=32, output_size=28)
-            lipnet.partial_model = load_model(model_path, compile=False)
-        elif incepv3_flag:
-            feature_extractor = self.inceptionV3_feature_extractor()
-
-        for idx, path in enumerate(video_paths):  # enumerate(random.sample(video_paths, 1001)):#
-            # print("path: ", path)
+        for idx, path in enumerate(video_paths):
             if multimodal_flag:
                 frames_paths = sorted([os.path.join(path, x) for x in os.listdir(path)])
 
-                if lipnet_flag:
-                    print("inside lipnet")
-                    frames = [imread(frame_path) for frame_path in frames_paths]
-                    frames = np.array(frames)
-                    pred = lipnet.predict(np.expand_dims(self.set_data(frames), axis=0))
-
-                elif landmark_flag:
+                if landmark_flag:
                     print("inside Landmark")
-                    if 'test_' in split:
-                        # print(path.split("datasets")[0] + 'datasets_original/video_normal/' + path.split("test/")[-1] + '.mpg')
-                        face_land, _, flag_face_found = extract_face_landmarks(
-                            video_filename=os.path.join(path.split("datasets")[0] +
-                                                        'datasets_original/video_normal/' +
-                                                        path.split(f"{'test'}/")[-1] + '.mpg'),
-                            predictor_params='shape_predictor_68_face_landmarks.dat',
-                            refresh_size=8)
-                    else:
-                        face_land, _, flag_face_found = extract_face_landmarks(
-                            video_filename=os.path.join(path.split("datasets")[0] +
-                                                        'datasets_original/video_normal',
-                                                        path.split(f"{split}/")[-1] + '.mpg'),
-                            predictor_params='shape_predictor_68_face_landmarks.dat',
-                            refresh_size=8)
+                    face_land, _, flag_face_found = extract_face_landmarks(
+                        video_filename=os.path.join(path.split("datasets")[0] +
+                                                    'datasets_original/video_normal',
+                                                    path.split(f"{split}/")[-1] + '.mpg'),
+                        predictor_params='shape_predictor_68_face_landmarks.dat',
+                        refresh_size=8)
                     flag_face_detect = flag_face_found
 
                     if flag_face_detect:
@@ -257,37 +132,13 @@ class Dataset():
                             continue
                         # Compute landmark motion vector
                         pred = get_motion_vector(video_features, delta=1)
-                        # pred = get_motion_vector(face_land, delta=1)
-                        # pred = np.array(pred)
-                        # print("pred shape", pred.shape)
-                elif incepv3_flag:
-                    print("inside Incepv3")
-                    frames = [resize(imread(frame_path), (FRAME_HEIGHT, FRAME_WIDTH)) for frame_path in frames_paths]
-                    frames = np.array(frames)
-                    pred = feature_extractor.predict(frames)
-                else:
-                    print("inside PCA")
-                    # frames = [imread(frame_path) for frame_path in frames_paths]
-                    # gray = rgb2gray(frames)
-                    # edges = self.lip_edges(gray)
-                    # pred = np.array(np.expand_dims(edges, axis=-1))
-                    # print(np.shape(edges))
-                    # edges_flatten = edges.reshape((75, 5000))
-                    # pca = PCA(n_components=3)
-                    # pred = np.array([pca.fit_transform(edge) for edge in edges])
-                    # pred = np.array(np.expand_dims(pred, axis=-1))
 
                 if flag_face_detect:
                     frame_features.append(np.array(pred).squeeze())
 
             if flag_face_detect:
-                if 'test_' in split:
-                    name = path.split("test/")[1]
-                    wav = load_wav(os.path.join(path.split("test/")[0] + f'audio_test',
-                                                path.split("test/")[-1] + '.wav'), sr=self.sample_rate)
-                else:
-                    name = path.split(f"{split}/")[1]
-                    wav = load_wav(os.path.join(path.split(f"{split}/")[0] + f'audio_{split}',
+                name = path.split(f"{split}/")[1]
+                wav = load_wav(os.path.join(path.split(f"{split}/")[0] + f'audio_{split}',
                                             path.split(f"{split}/")[-1] + '.wav'), sr=self.sample_rate)
                 mel_sgram = melspectrogram(wav).astype(np.float16)
                 mask2d, true_mask_cov, n_intr = get_intrusions_mask(mel_sgram.shape[0], mel_sgram.shape[1],
@@ -298,21 +149,17 @@ class Dataset():
                 masked_mel_sgram = mel_sgram.copy()
                 if multi_tasking_flag:
                     label = load_alignments(
-                        os.path.join(self.CURRENT_PATH, 'datasets/align', os.path.split(name)[-1] + '.align'))
+                        os.path.join(path.split("datasets")[0], 'datasets/align', os.path.split(name)[-1] + '.align'))
                     padding = np.zeros((self.absolute_max_string_len - len(label)))
                     align = np.concatenate((np.array(label), padding), axis=0)
                     aligns.append(align)
-                if env_sound_flag:
-                    if 'noise' in split:
-                        masked_mel_sgram += 0.1 * np.random.normal(0, 1, (NUM_DEC_FEAT, MAX_DEC_SEQ_LEN))
-                    elif 'env' in split:
-                        masked_mel_sgram += 1 * load_environmental_sound()
+
                 names.append(name)
                 spec_features.append(np.transpose(masked_mel_sgram) * mask2d)
                 spec_masks.append(mask2d)
 
             print(f"collecting {idx} {split} features and remaining {len(video_paths) - idx} from : {path}.")
-            if idx % 40 == 0 and idx > 0:
+            if idx % 50 == 0 and idx > 0:
                 set = {"names": names,
                        "encoder_input": frame_features,
                        "decoder_input": spec_features,
@@ -321,6 +168,9 @@ class Dataset():
                        "decoder_target": spec_labels}
                 dataset_filename = os.path.join(self.CURRENT_PATH, 'datasets',
                                                 f'cache_{split}').rstrip('/') + '.cache'
+                if not dataset_filename:
+                    # Create a new directory because it does not exist
+                    os.makedirs(dataset_filename)
                 if os.path.isfile(dataset_filename):
                     os.remove(dataset_filename)
                     print(f"removed {dataset_filename}")
@@ -356,16 +206,6 @@ class Dataset():
         else:
             results = dec_pred
 
-        # set = {"names": name,
-        #        "decoder_input": input,
-        #        "decoder_mask": mask,
-        #        "decoder_target": truth,
-        #        "decoder_pred": results}
-        # dataset_filename = os.path.join(self.CURRENT_PATH, 'spec_results',
-        #                                 f'cache_{split}').rstrip('/') + '.cache'
-        # with open(dataset_filename, 'wb') as fp:
-        #     pickle.dump(set, fp)
-
         total = len(results)
         avg_stoi = 0.0
         avg_pesq = 0.0
@@ -397,30 +237,17 @@ class Dataset():
         for cnt in range(len(results)):
 
             print(cnt)
-            # wav = load_wav(os.path.join(self.CURRENT_PATH, f'datasets/audio_{split}',
-            #                            name[cnt] + '.wav'), sample_rate)
-
             inv_true_input = inv_melspectrogram(np.transpose(input[cnt, :, :]))
-            # inv_truth = wav[:len(inv_true_input)]
             inv_truth = inv_melspectrogram(np.transpose(truth[cnt, :, :]))
-            # inv_input = inv_true_input.copy()
-            # inv_input[np.abs(inv_input) <= 0.001] = 0.0
-            # mask = np.nonzero(inv_input == 0)
-            # mask = np.nonzero(inv_input == 0)
-            # inv_true_input = inv_truth.copy()
-            # inv_true_input[mask] = 0
             audio_res = inv_melspectrogram(np.transpose(results[cnt, :, :]))
-            # audio_res = inv_truth.copy()
-            # audio_res[mask] = inv_res[mask]
             if algn_pred is not None:
                 sen_pred = decode_batch_predictions(algn_pred[cnt, :, :])
-                sen_tar = tf.strings.reduce_join(num_to_char(((algn_truth[cnt])))).numpy().decode('utf-8')
+                sen_tar = tf.strings.reduce_join(num_to_char((algn_truth[cnt]))).numpy().decode('utf-8')
                 avg_wer = avg_wer + wer(sen_tar, sen_pred)
                 avg_per += edit_eval(sen_tar, sen_pred) / len(sen_tar)
                 print("-" * 100)
                 print(f"Target    : {sen_tar}")
                 print(f"Prediction: {sen_pred}")
-                # print("wer_score", wer_score)
             print("PSNR:", PSNR(results[cnt, :, :], truth[cnt, :, :]))
             print("MSE:", self.maskd_acc(truth[cnt, :, :], results[cnt, :, :], mask[cnt, :, :])[1])
             print("SSIM:", ssim(results[cnt, :, :], truth[cnt, :, :]))
@@ -501,21 +328,6 @@ class Dataset():
             data_frames = np.rollaxis(data_frames, 3)  # C x T x W x H
         return data_frames
 
-    def inceptionV3_feature_extractor(self):
-        feature_extractor = InceptionV3(weights="imagenet", include_top=False,
-                                        pooling="avg",
-                                        input_shape=(FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNEL), )
-        preprocess_input = inception_v3.preprocess_input
-        inputs = Input((FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNEL))
-        preprocessed = preprocess_input(inputs)
-        imagenet_outputs = feature_extractor(preprocessed)
-        resh_out = tf.expand_dims(imagenet_outputs, axis=-1)
-        out_max = MaxPool1D(pool_size=32, strides=32, name='max')(resh_out)
-        out = tf.squeeze(out_max)
-        # dense = Dense(NUM_ENC_FEAT, activation='relu')
-        # outputs = dense(imagenet_outputs)
-        return Model(inputs, out, name="feature_extractor")
-
     def data_frame(self, split):
         path = os.path.join(self.CURRENT_PATH, 'datasets')
         header = ['cnt', 'video_path', 'audio_path', 'align_path']
@@ -539,25 +351,6 @@ class Dataset():
                                     os.path.join(align_path, folder + '.align')]
                             writer.writerow(data)
                             cnt = cnt + 1
-
-    def mask_gen(self, w, h, gap_ratio_min, gap_ratio_max):
-        mask = np.ones((h, w))
-        gap_len_min = int(gap_ratio_min * w)
-        gap_len_max = int(gap_ratio_max * w)
-        gap_num = random.randint(1, 8)
-        total_gap_len = random.randint(gap_len_min, gap_len_max)
-        while (gap_num > 0):
-            center = random.randint(self.min_gap_cen, w - self.min_gap_cen)
-            gap = random.randint(self.min_gap_len, self.max_gap_len)
-            min_gap_time = np.max([center - (gap // 2), 0])
-            max_gap_time = np.min([(center + (gap // 2)), w])
-            mask[:, min_gap_time:max_gap_time] = 0
-            gap_num += -1
-            total_gap_len = total_gap_len - (max_gap_time - min_gap_time)  # MAHSA: changed total_gap_len-gap
-            if total_gap_len < self.min_gap_len:
-                break
-
-        return mask
 
     def train_test_val_split(self):
         src_path = os.path.join(self.CURRENT_PATH, 'datasets_original')
@@ -613,49 +406,3 @@ class Dataset():
                                     os.makedirs(trg_video)
                                     print("created folder : ", trg_video)
                                 shutil.copy2(src_video, trg_video)
-
-    """
-        self.audio_set = []
-        self.video_set = []
-        self.combine_sets('train')
-        self.combine_sets('test')
-
-        def get_cache_path(self, split, modality):
-
-            return os.path.join(self.CURRENT_PATH, 'datasets', f'{modality}_cache_{split}').rstrip('/') + '.cache'
-
-        def load_data(self, split, modality):
-
-            print("cache path", self.get_cache_path(split, modality))
-            if os.path.isfile(self.get_cache_path(split, modality)):
-                print(f"Loading {split} dataset from cache...")
-                with open(self.get_cache_path(split, modality), 'rb') as fp:
-                    set = pickle.load(fp)
-                print(f"{split} list", type(set))
-            else:
-                print(f"Enumerating {split} dataset from disk...")
-                # print("train path", self.train_path )
-                set = self.build_data(split)
-                # print("train list", self.train_list)
-                with open(self.get_cache_path(split, modality), 'wb') as fp:
-                    pickle.dump(set, fp)
-
-            return set
-
-        def combine_sets(self, split):
-
-            self.audio_set = self.load_data(split, 'audio')
-            self.video_set = self.load_data(split, 'video')
-            j = 0
-            for i in range(0, len(self.video_set["names"])):
-                if self.audio_set["names"][j] == self.video_set["names"][i]:
-                    self.data[split]["encoder_input"][j] = self.video_set["encoder_input"][i]
-                    self.data[split]["names"][j] = self.video_set["names"][i]
-                    self.data[split]["decoder_input"][j] = self.audio_set["decoder_input"][j]
-                    self.data[split]["decoder_mask"][j] = self.audio_set["decoder_mask"][j]
-                    self.data[split]["decoder_target"][j] = self.audio_set["decoder_target"][j]
-                    j += 1
-                else:
-                    i += 1
-            return self.data
-        """
