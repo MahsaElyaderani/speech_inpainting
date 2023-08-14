@@ -6,5 +6,5 @@ Speech in-painting is the task of regenerating missing audio contents using reli
 
 <img src="[https://github.com/MahsaElyaderani/speech_inpainting/assets/90406947/e64fa521-3afc-4635-b37e-e11edf49459e]" width="100" height="100" />
 
-![Drawing2-3](https://github.com/MahsaElyaderani/speech_inpainting/assets/90406947/e64fa521-3afc-4635-b37e-e11edf49459e|width=100)
+![Drawing2-3](https://github.com/MahsaElyaderani/speech_inpainting/assets/90406947/e64fa521-3afc-4635-b37e-e11edf49459e|  width="100" height="100")
 
