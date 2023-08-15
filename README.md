@@ -13,4 +13,7 @@ To extract visual and auditory features, the video and audio samples are split i
   <img src="https://github.com/MahsaElyaderani/speech_inpainting/assets/90406947/5361edfb-c5b4-4ed7-9972-2b423cfa185b/directory.png")width="200" height="200">
 </p>
 
-https://github.com/MahsaElyaderani/speech_inpainting/assets/90406947/f7909266-ccad-4804-a9d9-88f695d7eb92
+<audio controls="controls">
+  <source type="audio/mp4" src="https://github.com/MahsaElyaderani/speech_inpainting/assets/90406947/f7909266-ccad-4804-a9d9-88f695d7eb92/result.mp4"></source>
+</audio>
+
