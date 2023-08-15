@@ -11,4 +11,4 @@ Speech in-painting is the task of regenerating missing audio contents using reli
 To extract visual and auditory features, the video and audio samples are split into folders similar to the image below. The align folder is the audio transcriptions of the Grid Corpus, whereas the train, test, and val are the folders associated with videos.
 <p align="center">
   <img src="https://github.com/MahsaElyaderani/speech_inpainting/assets/90406947/5361edfb-c5b4-4ed7-9972-2b423cfa185b/directory.png")width="200" height="200">
-  </p>
+</p>
